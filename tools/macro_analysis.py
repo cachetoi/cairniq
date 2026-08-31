@@ -55,28 +55,28 @@ def run_stock_deep_dive(symbol: str) -> dict[str, Any]:
         future_earn = executor.submit(get_st_aware_func(get_earnings_calendar), clean_symbol)
 
         # Collect results (using simplistic error handling per component)
-        try: results["price"] = future_quote.result()
+        try: results["price"] = future_quote.result(timeout=15)
         except Exception as e: results["price"] = f"Error: {e}"
 
-        try: results["fundamentals"] = future_fund.result()
+        try: results["fundamentals"] = future_fund.result(timeout=15)
         except Exception as e: results["fundamentals"] = f"Error: {e}"
 
-        try: results["technicals"] = future_tech.result()
+        try: results["technicals"] = future_tech.result(timeout=15)
         except Exception as e: results["technicals"] = f"Error: {e}"
 
-        try: results["analyst_ratings"] = future_analyst.result()
+        try: results["analyst_ratings"] = future_analyst.result(timeout=15)
         except Exception as e: results["analyst_ratings"] = f"Error: {e}"
 
-        try: results["insider_activity"] = future_insider.result()
+        try: results["insider_activity"] = future_insider.result(timeout=15)
         except Exception as e: results["insider_activity"] = f"Error: {e}"
 
-        try: results["insider_transactions_coded"] = future_insider_detail.result()
+        try: results["insider_transactions_coded"] = future_insider_detail.result(timeout=15)
         except Exception as e: results["insider_transactions_coded"] = f"Error: {e}"
 
-        try: results["institutional"] = future_inst.result()
+        try: results["institutional"] = future_inst.result(timeout=15)
         except Exception as e: results["institutional"] = f"Error: {e}"
 
-        try: results["earnings"] = future_earn.result()
+        try: results["earnings"] = future_earn.result(timeout=15)
         except Exception as e: results["earnings"] = f"Error: {e}"
 
     finally:
@@ -212,3 +212,4 @@ def assess_portfolio_risk() -> dict[str, Any]:
         executor.shutdown(wait=False, cancel_futures=True)
     return results
     return results
+
