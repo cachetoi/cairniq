@@ -1,4 +1,4 @@
-"""The weekly one-page review — Advisor Roadmap product surface.
+"""The weekly one-page review â€” Advisor Roadmap product surface.
 
 One page, once a week, assembled from surfaces that already exist: the wealth
 goal as the headline, the week's market state, how past advice actually scored,
@@ -7,7 +7,7 @@ alive, and which user-authored inputs are still blank.
 
 **Why this, after four builds nobody could see.** 1.8's grading, 3.9's deployment
 ladder, 2.3's provenance and 6.2's substitution counts are all correct, all
-shipped, and all invisible on a healthy box — each one exists as a number in a
+shipped, and all invisible on a healthy box â€” each one exists as a number in a
 JSON file that nothing reads on a schedule. This page is where those numbers
 become something a person reads. It adds no new intelligence on purpose; it is a
 READ surface over intelligence that already shipped.
@@ -15,7 +15,7 @@ READ surface over intelligence that already shipped.
 THE CONTRACT, and it is the whole reason this module is written the way it is:
 
 1. **Every section always renders.** A section with nothing to say says so, by
-   name, and is never omitted. This is not a style preference — a report is the
+   name, and is never omitted. This is not a style preference â€” a report is the
    highest-risk possible surface for the 2026-07-21 failure, where
    truthiness-gated blocks emitted nothing, the reader expected a full page, and
    the silence got back-filled with real-sounding content. An explicit "nothing
@@ -25,7 +25,7 @@ THE CONTRACT, and it is the whole reason this module is written the way it is:
 2. **It never generates, only reads.** The market pulse is read from cache and
    never kicked off; no LLM, no scan, no network beyond what a cached read
    implies. A report that triggers work is a report that can time out, cost
-   money, or — worst — quietly change the state it is describing.
+   money, or â€” worst â€” quietly change the state it is describing.
 3. **It never invents a number.** Absent is absent. Where a real figure cannot
    be computed the section says why, in the same spirit as
    ``goal_projection.realized_return_status``.
@@ -33,7 +33,7 @@ THE CONTRACT, and it is the whole reason this module is written the way it is:
 Three rules carried over from ``tools.profile_readiness``, which this module is
 modelled on and which learned all three the hard way:
 
-  - **Read through the accessor the consumer reads through** — never straight
+  - **Read through the accessor the consumer reads through** â€” never straight
     out of the JSON. A surface that re-derives a figure can disagree with the
     engine it is describing, and then it lies in the direction that hurts.
   - **Count the thing the CONSUMER reads.** For advice scoring that means
@@ -66,7 +66,7 @@ CONTRACT = (
 
 
 def _parse_ts(value: Any) -> datetime | None:
-    """Lenient ISO parse. Returns None rather than raising — a malformed stamp
+    """Lenient ISO parse. Returns None rather than raising â€” a malformed stamp
     excludes a record from the period, it does not break the page."""
     if not isinstance(value, str) or not value.strip():
         return None
@@ -95,7 +95,7 @@ def _section(
     **payload: Any,
 ) -> dict[str, Any]:
     """One section of the page. `note` is what the reader is shown when there is
-    nothing to report, and it is mandatory for an empty or unreadable section —
+    nothing to report, and it is mandatory for an empty or unreadable section â€”
     that sentence is the entire anti-fabrication guarantee."""
     return {
         "key": key,
@@ -120,7 +120,7 @@ def _goal_section(period: dict[str, Any]) -> dict[str, Any]:
         return _section(
             "goal", "Wealth goal", STATUS_EMPTY,
             note=(
-                f"No projection this week — {projection.get('reason', 'the goal is not set')}. "
+                f"No projection this week â€” {projection.get('reason', 'the goal is not set')}. "
                 "Stating a target, a horizon and an annual contribution turns this section on."
             ),
             roadmap="4.5",
@@ -179,7 +179,7 @@ def _scorecard_section(period: dict[str, Any]) -> dict[str, Any]:
     """How past advice actually scored.
 
     Reports distinct calls and the row count beside them. A hit rate over rows
-    credits one correct call once per restatement — the trap that landed inside
+    credits one correct call once per restatement â€” the trap that landed inside
     the fix for the corpus problem it was built to solve.
     """
     from tools.memory import get_scored_recommendations_data
@@ -268,7 +268,7 @@ def _advice_section(period: dict[str, Any]) -> dict[str, Any]:
 
 
 def _engines_section(period: dict[str, Any]) -> dict[str, Any]:
-    """Is anything quietly dead — and what the quiet builds actually did.
+    """Is anything quietly dead â€” and what the quiet builds actually did.
 
     The `concerning` list is the whole point of the liveness view; an empty one
     is a real, reportable result rather than a reason to omit the section.
@@ -293,7 +293,7 @@ def _engines_section(period: dict[str, Any]) -> dict[str, Any]:
         note=(
             "" if (concerning or produced) else
             "No engine has reported anything since the last restart. That is itself "
-            "worth a look — the engines record what they did on every run."
+            "worth a look â€” the engines record what they did on every run."
         ),
         roadmap="2.5/2.6",
         concerning=concerning,
@@ -318,7 +318,7 @@ def _readiness_section(period: dict[str, Any]) -> dict[str, Any]:
     if not gaps:
         return _section(
             "readiness", "Inputs still needed", STATUS_EMPTY,
-            note="Nothing is missing — every input the engines depend on is on file.",
+            note="Nothing is missing â€” every input the engines depend on is on file.",
             roadmap="2.8",
             counts=counts,
         )
@@ -330,7 +330,7 @@ def _readiness_section(period: dict[str, Any]) -> dict[str, Any]:
         counts=counts,
         inert_count=readiness.get("inert_count", 0),
         # The deduped count. `inert_count` beside it is consequence SENTENCES,
-        # one per blank field, and several fields commonly name one capability —
+        # one per blank field, and several fields commonly name one capability â€”
         # rendering that figure as a capability count overstated what is dark.
         dark_capabilities=len(capabilities.get("dark") or []),
         gaps=[
@@ -356,7 +356,7 @@ _BUILDERS = (
 )
 
 # Titles must survive a builder blowing up: an unreadable section still has to
-# render under its own name, or the failure becomes an omission — which is the
+# render under its own name, or the failure becomes an omission â€” which is the
 # one outcome this module exists to prevent.
 _TITLES = {
     "_goal_section": ("goal", "Wealth goal"),
@@ -375,7 +375,7 @@ def _unreadable(builder_name: str, error: Exception) -> dict[str, Any]:
         key, title, STATUS_UNREADABLE,
         note=(
             "This section could not be read this week. Its data is unavailable, "
-            "not empty — treat it as unknown rather than as nothing to report."
+            "not empty â€” treat it as unknown rather than as nothing to report."
         ),
         error=f"{type(error).__name__}: {error}",
     )
@@ -394,14 +394,14 @@ def build_weekly_review(now: datetime | None = None) -> dict[str, Any]:
         "start": start,
         "end": now,
         "days": REVIEW_PERIOD_DAYS,
-        "label": f"{start:%b %-d} – {now:%b %-d, %Y}",
+        "label": f"{start:%b} {start.day} - {now:%b} {now.day}, {now:%Y}",
     }
 
     sections = []
     for builder in _BUILDERS:
         try:
             sections.append(builder(period))
-        except Exception as e:  # noqa: BLE001 — a bad store yields a section, not a 500
+        except Exception as e:  # noqa: BLE001 â€” a bad store yields a section, not a 500
             sections.append(_unreadable(builder.__name__, e))
 
     counts = {
@@ -426,7 +426,7 @@ def build_weekly_review(now: datetime | None = None) -> dict[str, Any]:
 
 
 def summarize_for_heartbeat(review: dict[str, Any]) -> str:
-    """The one line the scheduler records — chosen to prove the CHAIN ran.
+    """The one line the scheduler records â€” chosen to prove the CHAIN ran.
 
     Deliberately the section counts rather than a rare event: an engine whose
     detail line only fills in on an interesting week is indistinguishable from
@@ -435,6 +435,7 @@ def summarize_for_heartbeat(review: dict[str, Any]) -> str:
     """
     counts = review.get("counts") or {}
     return (
-        f"{counts.get('total', 0)} sections · {counts.get(STATUS_OK, 0)} reported · "
-        f"{counts.get(STATUS_EMPTY, 0)} empty · {counts.get(STATUS_UNREADABLE, 0)} unreadable"
+        f"{counts.get('total', 0)} sections Â· {counts.get(STATUS_OK, 0)} reported Â· "
+        f"{counts.get(STATUS_EMPTY, 0)} empty Â· {counts.get(STATUS_UNREADABLE, 0)} unreadable"
     )
+

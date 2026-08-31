@@ -1,8 +1,11 @@
-import importlib.util
+﻿import importlib.util
 import logging
 import os
 import re
 from datetime import datetime
+import json
+from pathlib import Path
+from datetime import date
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -23,10 +26,10 @@ _SUPPORTED_CURRENCIES = {"USD", "CAD", "EUR", "GBP", "AUD", "JPY"}
 _CURRENCY_SYMBOLS = {
     "USD": "$",
     "CAD": "$",
-    "EUR": "€",
-    "GBP": "£",
+    "EUR": "â‚¬",
+    "GBP": "Â£",
     "AUD": "$",
-    "JPY": "¥",
+    "JPY": "Â¥",
 }
 _LOCALE_DEFAULT_CURRENCY = {
     "English (Canada)": "CAD",
@@ -55,7 +58,7 @@ def _persisted_config_value(key: str) -> str | None:
     os.environ is per-process: a Settings save mutates only the handling worker's
     env, so other workers keep a stale snapshot. Reading the shared .env file makes
     locale/currency render the authoritative saved value regardless of which worker
-    serves the request — fixing the intermittent "currency reset to USD". Falls back
+    serves the request â€” fixing the intermittent "currency reset to USD". Falls back
     to os.environ when the file or key is absent.
     """
     try:
@@ -77,7 +80,7 @@ def _configured_base_currency() -> str:
 
     They did diverge: this resolved an unset currency through the persisted .env
     and a locale default (CAD here), while `get_profile_base_currency` hardcoded
-    USD — so a profile that never stated one read CAD on screen and was stamped
+    USD â€” so a profile that never stated one read CAD on screen and was stamped
     USD in storage. Harmless until 4.5's wealth goal shipped, at which point a
     target typed as CAD would be scored as USD. One resolver, one answer.
     """
@@ -342,7 +345,7 @@ def get_dashboard_context(request: Request):
     graph_memory.load()
     graph_data = nx.node_link_data(graph_memory.graph)
 
-    # Filter graph data for cleaner D3 visualization — remove Unknown-typed nodes
+    # Filter graph data for cleaner D3 visualization â€” remove Unknown-typed nodes
     all_nodes = graph_data.get("nodes", [])
     clean_nodes = [n for n in all_nodes if n.get("type") != "Unknown"]
     clean_node_ids = {n["id"] for n in clean_nodes}
@@ -350,7 +353,7 @@ def get_dashboard_context(request: Request):
     clean_links = [l for l in all_links
                    if l.get("source") in clean_node_ids and l.get("target") in clean_node_ids]
 
-    # Build a symbol → current_price map for thesis upside calculations.
+    # Build a symbol â†’ current_price map for thesis upside calculations.
     # current_price is a formatted string ("$150.00"); current_price_raw is its
     # numeric twin. Fall back to parsing the string so Last-Known-Good snapshots
     # written before current_price_raw existed still populate the map.
@@ -380,13 +383,13 @@ def get_dashboard_context(request: Request):
         "holdings_price_map": holdings_price_map,
         # Positions excluded from total_value_cad above because nothing could value
         # them. Surfaced so the editor can say which rows the headline figure is
-        # missing — a total quietly short by a pension is the failure this prevents.
+        # missing â€” a total quietly short by a pension is the failure this prevents.
         "unvalued_holdings": summary.get("unvalued_holdings", []),
         "unvalued_notice": summary.get("unvalued_notice", ""),
         "profile": profile,
         # Roadmap 3.7. Read straight off memory rather than through get_playbook()
         # so a template default can never diverge from what the sentinel reads
-        # back during a drawdown — {} renders every field blank, which is the
+        # back during a drawdown â€” {} renders every field blank, which is the
         # honest state when nothing has been agreed.
         "playbook": memory.get("drawdown_playbook") or {},
         # Roadmap 2.2/4.4's caps, read raw for the same reason as the playbook:
@@ -413,7 +416,7 @@ def get_dashboard_context(request: Request):
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    """Standalone login page — no sidebar, no dashboard context."""
+    """Standalone login page â€” no sidebar, no dashboard context."""
     return templates.TemplateResponse(request=request, name="login.html", context={"request": request})
 
 
@@ -427,6 +430,293 @@ def journal(request: Request):
     context = get_dashboard_context(request)
     context["journal_history"] = get_trade_history()
     return templates.TemplateResponse(request=request, name="trade_journal.html", context=context)
+BRIDGE_SETTINGS_PATH = r"C:\autotrader\bridge_settings.json"
+BRIDGE_LEDGER_PATH = r"C:\autotrader\trade_ledger.json"
+
+
+def _bridge_defaults():
+    return {
+        "environment": "PAPER",
+        "execution_mode": "MANUAL",
+        "order_size": 100.0,
+        "allowed_action": "BUY",
+        "minimum_confidence": "HIGH",
+        "recommendation_age": "TODAY",
+        "max_trades_per_day": 3,
+        "max_dollars_per_day": 300.0,
+        "duplicate_protection": True,
+        "kill_switch": False,
+    }
+
+
+def _load_bridge_settings():
+    import json as _json
+    from pathlib import Path as _Path
+
+    settings = _bridge_defaults()
+    path = _Path(BRIDGE_SETTINGS_PATH)
+
+    if path.exists():
+        try:
+            saved = _json.loads(path.read_text(encoding="utf-8-sig"))
+            if isinstance(saved, dict):
+                settings.update(saved)
+        except (_json.JSONDecodeError, OSError):
+            pass
+
+    # Hard safety invariants: UI cannot unlock these.
+    settings["environment"] = "PAPER"
+    settings["duplicate_protection"] = True
+    settings["allowed_action"] = "BUY"
+    settings["recommendation_age"] = "TODAY"
+
+    return settings
+
+
+def _save_bridge_settings(settings):
+    import json as _json
+    from pathlib import Path as _Path
+
+    path = _Path(BRIDGE_SETTINGS_PATH)
+    path.write_text(
+        _json.dumps(settings, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _bridge_context(request, saved=False, error=None):
+    import json as _json
+    from pathlib import Path as _Path
+    from datetime import date as _date
+
+    context = get_dashboard_context(request)
+    settings = _load_bridge_settings()
+
+    trades = []
+    ledger_path = _Path(BRIDGE_LEDGER_PATH)
+
+    if ledger_path.exists():
+        try:
+            loaded = _json.loads(ledger_path.read_text(encoding="utf-8-sig"))
+            if isinstance(loaded, list):
+                trades = loaded
+        except (_json.JSONDecodeError, OSError):
+            trades = []
+
+    today = _date.today().isoformat()
+    todays_trades = [
+        trade for trade in trades
+        if str(trade.get("processed_at", "")).startswith(today)
+    ]
+
+    deployed_today = sum(
+        float(trade.get("paper_amount", 0) or 0)
+        for trade in todays_trades
+    )
+
+    recommendation_checks = []
+    recommendation_error = None
+
+    try:
+        import requests as _requests
+
+        response = _requests.get(
+            "http://localhost:8000/api/export/advisor-scorecard?format=json",
+            timeout=4,
+        )
+        response.raise_for_status()
+        recommendation_data = response.json()
+        recommendations = recommendation_data.get("recommendations", [])
+
+        confidence_rank = {
+            "LOW": 1,
+            "MEDIUM": 2,
+            "HIGH": 3,
+        }
+
+        required_confidence = str(
+            settings.get("minimum_confidence", "HIGH")
+        ).upper()
+
+        required_rank = confidence_rank.get(
+            required_confidence,
+            3,
+        )
+
+        processed_ids = {
+            str(entry.get("recommendation_id", ""))
+            for entry in trades
+        }
+
+        # Show newest recommendations first.
+        indexed_recommendations = list(enumerate(recommendations))
+        indexed_recommendations.sort(
+            key=lambda item: (
+                str(item[1].get("date", "")),
+                item[0],
+            ),
+            reverse=True,
+        )
+
+        for _, rec in indexed_recommendations[:10]:
+            rec_date = str(rec.get("date", "")).strip()
+            ticker = str(rec.get("ticker", "")).strip().upper()
+            action = str(rec.get("action", "")).strip().upper()
+            confidence = str(
+                rec.get("confidence_grade", "")
+            ).strip().upper()
+            executed = rec.get("executed")
+
+            rec_id = "|".join([
+                rec_date,
+                ticker,
+                action,
+                str(rec.get("price_at_advice", "")),
+                confidence,
+                str(rec.get("horizon", "")),
+            ])
+
+            blocked = []
+
+            if settings.get("kill_switch"):
+                blocked.append("Kill switch is ON")
+
+            if rec_date != today:
+                blocked.append("Recommendation is not from today")
+
+            if action != "BUY":
+                blocked.append("Action must be BUY")
+
+            if confidence_rank.get(confidence, 0) < required_rank:
+                blocked.append(
+                    f"Confidence is below {required_confidence}"
+                )
+
+            if executed not in (None, False, "", 0):
+                blocked.append("Recommendation is already marked executed")
+
+            if rec_id in processed_ids:
+                blocked.append("Already processed by the bridge")
+
+            if len(todays_trades) >= int(
+                settings.get("max_trades_per_day", 3)
+            ):
+                blocked.append("Daily trade limit reached")
+
+            if (
+                deployed_today
+                + float(settings.get("order_size", 100) or 0)
+                > float(settings.get("max_dollars_per_day", 300) or 0)
+            ):
+                blocked.append("Daily dollar limit would be exceeded")
+
+            recommendation_checks.append({
+                "ticker": ticker or "—",
+                "action": action or "—",
+                "confidence": confidence or "—",
+                "date": rec_date or "—",
+                "reason": rec.get("reason") or "",
+                "price": rec.get("price_at_advice"),
+                "eligible": not blocked,
+                "blocked_reasons": blocked,
+            })
+
+    except Exception as exc:
+        recommendation_error = str(exc)
+
+    context.update({
+        "bridge_settings": settings,
+        "bridge_trades_today": len(todays_trades),
+        "bridge_deployed_today": deployed_today,
+        "bridge_last_trade": trades[-1] if trades else None,
+        "bridge_settings_saved": saved,
+        "bridge_settings_error": error,
+        "bridge_recommendation_checks": recommendation_checks,
+        "bridge_recommendation_error": recommendation_error,
+    })
+
+    return context
+
+
+@router.get("/trading-bridge", response_class=HTMLResponse)
+def trading_bridge(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="trading_bridge.html",
+        context=_bridge_context(request),
+    )
+
+
+@router.post("/trading-bridge", response_class=HTMLResponse)
+async def save_trading_bridge_settings(request: Request):
+    from urllib.parse import parse_qs
+
+    try:
+        raw_body = (await request.body()).decode("utf-8")
+        values = {
+            key: items[-1]
+            for key, items in parse_qs(raw_body).items()
+            if items
+        }
+
+        execution_mode = str(values.get("execution_mode", "MANUAL")).upper()
+        if execution_mode not in {"MANUAL", "AUTO"}:
+            raise ValueError("Invalid trading mode.")
+
+        minimum_confidence = str(
+            values.get("minimum_confidence", "HIGH")
+        ).upper()
+        if minimum_confidence not in {"LOW", "MEDIUM", "HIGH"}:
+            raise ValueError("Invalid confidence setting.")
+
+        order_size = float(values.get("order_size", 100))
+        max_trades = int(values.get("max_trades_per_day", 3))
+        max_dollars = float(values.get("max_dollars_per_day", 300))
+
+        if not 1 <= order_size <= 10000:
+            raise ValueError("Order size must be between $1 and $10,000.")
+
+        if not 1 <= max_trades <= 100:
+            raise ValueError("Max trades per day must be between 1 and 100.")
+
+        if not 1 <= max_dollars <= 100000:
+            raise ValueError(
+                "Max daily deployment must be between $1 and $100,000."
+            )
+
+        if order_size > max_dollars:
+            raise ValueError(
+                "Order size cannot exceed the max daily deployment."
+            )
+
+        settings = {
+            "environment": "PAPER",
+            "execution_mode": execution_mode,
+            "order_size": round(order_size, 2),
+            "allowed_action": "BUY",
+            "minimum_confidence": minimum_confidence,
+            "recommendation_age": "TODAY",
+            "max_trades_per_day": max_trades,
+            "max_dollars_per_day": round(max_dollars, 2),
+            "duplicate_protection": True,
+            "kill_switch": values.get("kill_switch") == "on",
+        }
+
+        _save_bridge_settings(settings)
+
+        return templates.TemplateResponse(
+            request=request,
+            name="trading_bridge.html",
+            context=_bridge_context(request, saved=True),
+        )
+
+    except (ValueError, TypeError) as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="trading_bridge.html",
+            context=_bridge_context(request, error=str(exc)),
+            status_code=400,
+        )
 
 @router.get("/recommendations", response_class=HTMLResponse)
 def recommendations(request: Request):
@@ -456,7 +746,7 @@ def context(request: Request):
 
     ctx = get_dashboard_context(request)
     # Lessons drafted from low-rated turns and from the 1.7 consolidation pass.
-    # They are NOT in effect — this page is the human-confirmation gate roadmap
+    # They are NOT in effect â€” this page is the human-confirmation gate roadmap
     # 1.4 requires before anything auto-drafted can reach the prompt.
     ctx["pending_lessons"] = list_pending_lessons()
     # 1.7: the store no longer evicts to make room, so how full it is has to be
@@ -470,12 +760,12 @@ def portfolio(request: Request):
 
 @router.get("/monitor", response_class=HTMLResponse)
 def monitor(request: Request):
-    """Read-only surfaces over the holdings — fund flows (5.5) and event radar (3.5b).
+    """Read-only surfaces over the holdings â€” fund flows (5.5) and event radar (3.5b).
 
     Split off /portfolio, which is an editor: it has a Save button, a CSV
     upload and a reconciliation panel whose cause cell POSTs. Nothing here
-    writes. The two are visited on completely different rhythms — the grid
-    monthly, this page daily — and while they shared a template every visit to
+    writes. The two are visited on completely different rhythms â€” the grid
+    monthly, this page daily â€” and while they shared a template every visit to
     correct a share count paid for two engine fetches it did not ask for.
     """
     return templates.TemplateResponse(request=request, name="monitor.html", context=get_dashboard_context(request))
@@ -487,3 +777,5 @@ def settings(request: Request):
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request):
     return templates.TemplateResponse(request=request, name="dashboard.html", context=get_dashboard_context(request))
+
+
